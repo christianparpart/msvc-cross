@@ -115,6 +115,31 @@ string(APPEND CMAKE_RC_FLAGS_INIT " ${_rc_flags}")
 # argument list to Z:\ paths first. CTest and Catch2 hand host paths to the
 # binary under test, and a Windows command line parser reads a leading "/" as
 # the start of an option rather than of a path.
+# Response files, unconditionally.
+#
+# Windows caps a command line at 32767 characters, and a cross build reaches
+# that far sooner than a native one: every object path is absolute and rooted
+# under the Unix source tree, so a target with a few hundred translation units
+# produces a link line tens of kilobytes long. Building Lastrada's vendored
+# pdfout-sdk, lib.exe was handed 37204 bytes of arguments.
+#
+# The failure mode is the reason this is forced rather than left to CMake's
+# judgement: over the limit, the process does not fail with a diagnostic -- it
+# hangs. A build that stops making progress with no error and no CPU use looks
+# like a deadlock in the build system, and nothing points at the command line.
+#
+# CMake sizes its own response-file heuristics against the *host* platform, and
+# a Linux host has a limit two orders of magnitude higher, so left alone it
+# decides response files are unnecessary. They are not.
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON CACHE INTERNAL "")
+foreach(_lang C CXX RC)
+    set(CMAKE_${_lang}_USE_RESPONSE_FILE_FOR_OBJECTS   1)
+    set(CMAKE_${_lang}_USE_RESPONSE_FILE_FOR_INCLUDES  1)
+    set(CMAKE_${_lang}_USE_RESPONSE_FILE_FOR_LIBRARIES 1)
+    set(CMAKE_${_lang}_RESPONSE_FILE_LINK_FLAG "@")
+endforeach()
+unset(_lang)
+
 find_program(WINE_EXECUTABLE NAMES wine64 wine REQUIRED)
 set(CMAKE_CROSSCOMPILING_EMULATOR "${CMAKE_CURRENT_LIST_DIR}/../bin/wine-exec")
 
