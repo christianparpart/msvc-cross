@@ -159,6 +159,17 @@ list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../cmake-shims")
 # for target-side SDKs installed outside this root -- a Windows Qt kit, for
 # instance. Their include directories arrive as absolute paths from their own
 # CMake config files and are unaffected by the restriction above.
+# Never let a host package satisfy a Windows build.
+#
+# MODE_PACKAGE is BOTH above so that target-side SDKs installed outside the
+# sysroot (a Windows Qt kit, vcpkg's installed tree) remain findable. The cost is
+# that /usr stays on the search path, and a host package will be picked up
+# silently: a misconfigured Qt6_DIR here resolved find_package(Qt6) to
+# /usr/lib64/cmake/Qt6 -- the host's Linux Qt -- and configuring carried on as if
+# nothing were wrong. Ignoring the host prefixes turns that into a plain
+# "package not found", which is what it is.
+list(APPEND CMAKE_IGNORE_PREFIX_PATH /usr /usr/local)
+
 if(NOT CMAKE_FIND_ROOT_PATH)
     set(CMAKE_FIND_ROOT_PATH "${MSVC_WINE_ROOT}")
 endif()
