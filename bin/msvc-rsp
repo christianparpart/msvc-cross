@@ -24,7 +24,6 @@ the colon.
 """
 
 import os
-import re
 import subprocess
 import sys
 
@@ -41,56 +40,53 @@ def _is_hostpath(text):
     return bool(parent) and os.path.isdir(parent)
 
 
-def _translate(token):
-    """Rewrite the host path inside a token, wherever in the token it starts.
-
-    MSVC attaches paths to options with no separator at all -- /FI<path>,
-    /Yc<path>, /Fo<path>, /I<path>, /external:I<path> -- and that is precisely
-    what breaks: cl reads "/FI/home/..." as "/FI" followed by a *new* option
-    beginning with "/", and reports "D8004: '/FI' requires an argument" about a
-    command line that looks perfectly well-formed. So the path is located by
-    scanning for the first "/" that begins a real directory rather than by
-    matching a fixed set of option spellings.
-    """
-    # A define is text, not a path; "/DFOO=/bar" must be left exactly as it is.
-    if token[:2] in ('-D', '/D'):
-        return token
-
-    for i in range(len(token)):
-        if token[i] != '/':
-            continue
-        # The path has to begin right after an option prefix, so anything before
-        # it must not itself look like a path. Without this the scan finds a
-        # match inside a *relative* one: /lib is a real directory on Linux, so
-        # CMakeFiles/libiconv_obj.dir/external/libiconv-1.14/lib/iconv.c.obj
-        # became ...libiconv-1.14z:/lib/iconv.c.obj and the linker reported a
-        # missing input file that had never been missing.
-        if '/' in token[1:i]:
-            break
-        if _is_hostpath(token[i:]):
-            return token[:i] + 'z:' + token[i:]
-    return token
-
-
-def _split(text):
-    """Split response-file content, honouring MSVC's double-quote grouping."""
-    out, cur, quoted = [], [], False
-    for ch in text:
+def _token_spans(text):
+    """Yield (start, end) of each whitespace-separated token, honouring quotes."""
+    spans, start, quoted = [], None, False
+    for i, ch in enumerate(text):
         if ch == '"':
             quoted = not quoted
+            if start is None:
+                start = i
         elif ch.isspace() and not quoted:
-            if cur:
-                out.append(''.join(cur))
-                cur = []
-        else:
-            cur.append(ch)
-    if cur:
-        out.append(''.join(cur))
-    return out
+            if start is not None:
+                spans.append((start, i))
+                start = None
+        elif start is None:
+            start = i
+    if start is not None:
+        spans.append((start, len(text)))
+    return spans
 
 
-def _quote(token):
-    return '"%s"' % token if any(c.isspace() for c in token) else token
+def _insert_at(raw):
+    """Offset within raw where "z:" belongs, or None to leave it alone.
+
+    MSVC attaches paths to options with no separator at all -- /FI<path>,
+    /Yc<path>, /Fo<path>, /I<path>, /external:I<path> -- and that is what breaks:
+    cl reads "/FI/home/..." as "/FI" followed by a *new* option, because a
+    leading "/" starts one, and reports "D8004: '/FI' requires an argument"
+    about a command line that looks perfectly well-formed. So the path is found
+    by scanning rather than by matching a list of option spellings.
+    """
+    # A define is text, not a path; -DFOO=/bar must survive untouched.
+    if raw.lstrip('"')[:2] in ('-D', '/D'):
+        return None
+
+    for i, ch in enumerate(raw):
+        if ch != '/':
+            continue
+        # The path must begin right after an option prefix, so nothing before it
+        # may look like a path itself. Without this the scan matches inside a
+        # *relative* path: /lib is a real directory on Linux, so
+        # CMakeFiles/x.dir/external/libiconv-1.14/lib/iconv.c.obj came out as
+        # ...libiconv-1.14z:/lib/iconv.c.obj and the linker reported a missing
+        # input file that had never been missing.
+        if '/' in raw[:i].replace('"', '')[1:]:
+            return None
+        if _is_hostpath(raw[i:].replace('"', '')):
+            return i
+    return None
 
 
 def main(argv):
@@ -98,23 +94,33 @@ def main(argv):
         sys.stderr.write('usage: msvc-rsp <tool> [args...]\n')
         return 2
 
-    tool, args, rewritten = argv[1], [], []
+    tool, args = argv[1], []
     for arg in argv[2:]:
         if not arg.startswith('@') or not os.path.isfile(arg[1:]):
             args.append(arg)
             continue
 
         original = arg[1:]
-        content = open(original, 'r', errors='surrogateescape').read()
-        translated = ' '.join(_quote(_translate(t)) for t in _split(content))
+        text = open(original, 'r', errors='surrogateescape').read()
 
-        # Sibling file, so it lands in the build tree next to the original and
-        # is as easy to inspect when a link goes wrong.
+        # Splice "z:" in at the offsets that need it and copy every other byte
+        # through untouched. Re-serialising from parsed tokens instead would
+        # mean re-quoting them, and that loses escaped quotes inside a define:
+        # -DVER="\"6.10.8\"" came back as -DVER=\6.10.8\ and the compiler
+        # then tried to open a source file named after the fragment.
+        edits = [(start + off, ) for start, stop in _token_spans(text)
+                 for off in (_insert_at(text[start:stop]),) if off is not None]
+        out, prev = [], 0
+        for (at, ) in edits:
+            out.append(text[prev:at])
+            out.append('z:')
+            prev = at
+        out.append(text[prev:])
+
         copy = original + '.wine'
         with open(copy, 'w', errors='surrogateescape') as handle:
-            handle.write(translated + '\n')
+            handle.write(''.join(out))
         args.append('@' + copy)
-        rewritten.append(copy)
 
     return subprocess.call([tool] + args)
 
