@@ -1,0 +1,28 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "msvc-cross-common",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5",
+        "CMAKE_CATCH_DISCOVER_TESTS_DISCOVERY_MODE": "PRE_TEST"
+      }
+    },
+    {
+      "name": "msvc-wine-x64",
+      "hidden": true,
+      "inherits": "msvc-cross-common",
+      "displayName": "Windows x64 via cl.exe under Wine",
+      "toolchainFile": "$env{MSVC_CROSS_ROOT}/toolchains/msvc-wine-x64.cmake"
+    },
+    {
+      "name": "clang-cl-x64",
+      "hidden": true,
+      "inherits": "msvc-cross-common",
+      "displayName": "Windows x64 via native clang-cl + lld-link",
+      "toolchainFile": "$env{MSVC_CROSS_ROOT}/toolchains/clang-cl-x64.cmake"
+    }
+  ]
+}
