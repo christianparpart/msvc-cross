@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Run a cross-built Windows binary, translating Unix path arguments to Wine's
+# Z: drive first.
+#
+# CMAKE_CROSSCOMPILING_EMULATOR is set to this rather than to plain wine, and
+# the reason is not cosmetic. CTest and the test frameworks it drives hand
+# absolute host paths to the binary they are testing, and a Windows program
+# cannot read them -- not merely because the separators are wrong, but because
+# an argument starting with "/" is ambiguous. Catch2's command line parser, like
+# most that target Windows, accepts "/switch" as an option, so it reads
+#
+#     --out /home/user/build/listing.json
+#
+# as "--out with no argument, followed by an option named /home/...". The result
+# is "Expected argument following --out" and a failed test discovery, from a
+# binary that is in fact perfectly fine.
+#
+# Rewriting to Z:\home\user\build\listing.json removes the ambiguity: it is
+# unmistakably a path, and it is the path Wine already maps the Unix root to.
+#
+# The rewrite is deliberately conservative. It fires only for an argument that
+# looks like an absolute Unix path *and* whose parent directory actually exists,
+# so a genuine Windows-style switch -- "/nologo", "/W4", "/Fo" -- is left alone.
+# A file that does not exist yet but is to be created in a directory that does,
+# which is exactly the Catch2 case above, still translates.
+
+# Default to the build prefix when the caller did not choose one, so a build
+# started without sourcing env/msvc-env.sh still runs headless rather than
+# against the user's desktop Wine prefix.
+if [ -z "${WINEPREFIX:-}" ] && [ -d "${MSVC_CROSS_WINEPREFIX:-$HOME/.wine-msvc}" ]; then
+    export WINEPREFIX="${MSVC_CROSS_WINEPREFIX:-$HOME/.wine-msvc}"
+fi
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: wine-exec <program.exe> [args...]" >&2
+    exit 2
+fi
+
+wine_bin="${WINE:-}"
+if [ -z "$wine_bin" ]; then
+    for candidate in wine64 wine; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            wine_bin="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$wine_bin" ]; then
+    echo "wine-exec: no wine binary found on PATH" >&2
+    exit 127
+fi
+
+translated=()
+for arg in "$@"; do
+    case "$arg" in
+        /*/*)
+            parent="${arg%/*}"
+            if [ -d "$parent" ]; then
+                translated+=("Z:${arg//\//\\}")
+            else
+                translated+=("$arg")
+            fi
+            ;;
+        *)
+            translated+=("$arg")
+            ;;
+    esac
+done
+
+exec "$wine_bin" "${translated[@]}"

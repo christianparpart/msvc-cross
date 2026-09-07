@@ -100,8 +100,12 @@ foreach(_dir IN LISTS _msvc_include)
 endforeach()
 string(APPEND CMAKE_RC_FLAGS_INIT " ${_rc_flags}")
 
+# wine-exec rather than wine itself: it rewrites absolute Unix paths in the
+# argument list to Z:\ paths first. CTest and Catch2 hand host paths to the
+# binary under test, and a Windows command line parser reads a leading "/" as
+# the start of an option rather than of a path.
 find_program(WINE_EXECUTABLE NAMES wine64 wine REQUIRED)
-set(CMAKE_CROSSCOMPILING_EMULATOR "${WINE_EXECUTABLE}")
+set(CMAKE_CROSSCOMPILING_EMULATOR "${CMAKE_CURRENT_LIST_DIR}/../bin/wine-exec")
 
 # CMake's own InstallRequiredSystemLibraries aborts when cross-compiling: it
 # locates the redistributable CRT through cmake_host_system_information's
@@ -109,7 +113,21 @@ set(CMAKE_CROSSCOMPILING_EMULATOR "${WINE_EXECUTABLE}")
 # CMAKE_ROOT/Modules so include(InstallRequiredSystemLibraries) resolves to it.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../cmake-shims")
 
+# Restrict find_path/find_library to the target sysroot. Without a non-empty
+# CMAKE_FIND_ROOT_PATH the MODE_* settings below are inert, and host packages
+# leak into the Windows build: find_package(Vulkan), pulled in by Qt6::Gui via
+# WrapVulkanHeaders, otherwise resolves to the host's /usr/include and drags all
+# of glibc's headers in ahead of the UCRT's.
+#
+# MODE_PACKAGE stays BOTH so that find_package() still honours CMAKE_PREFIX_PATH
+# for target-side SDKs installed outside this root -- a Windows Qt kit, for
+# instance. Their include directories arrive as absolute paths from their own
+# CMake config files and are unaffected by the restriction above.
+if(NOT CMAKE_FIND_ROOT_PATH)
+    set(CMAKE_FIND_ROOT_PATH "${MSVC_WINE_ROOT}")
+endif()
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)

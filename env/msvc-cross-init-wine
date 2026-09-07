@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# Create and configure the Wine prefix used for cross-building.
+#
+# A cross build starts thousands of short-lived Windows processes: cl.exe,
+# rc.exe, link.exe, Qt's moc.exe and rcc.exe, and every test binary. Wine's
+# defaults assume you are running an application on a desktop, and at that
+# volume three of them are actively hostile.
+#
+#   * Anything that writes usage text or diagnostics can end up on screen.
+#     Qt's QCommandLineParser puts its message in a MessageBox when the process
+#     has no console, and Wine will allocate a console window for a console
+#     program that has one to show. Either way a build tool interrupts whoever
+#     is at the keyboard.
+#   * The crash dialog turns one misbehaving tool into a dialog per process,
+#     each blocking until dismissed.
+#   * winemenubuilder files a .desktop entry for executables it encounters, so
+#     a build tree's binaries leak into the application menu.
+#
+# The prefix is therefore separate from ~/.wine -- so that using Wine for actual
+# Windows applications is unaffected -- and its wineserver is started with no
+# display connection at all. That last part is the load-bearing one: a Wine
+# process cannot put a window on a screen it has no connection to, so this holds
+# regardless of what any individual build tool decides to display. Test binaries
+# still run; they just run headless, which is what Qt's offscreen platform
+# plugin is for.
+set -euo pipefail
+
+export WINEPREFIX="${WINEPREFIX:-${MSVC_CROSS_WINEPREFIX:-$HOME/.wine-msvc}}"
+export WINEDEBUG="${WINEDEBUG:--all}"
+unset DISPLAY WAYLAND_DISPLAY
+
+if [ ! -f "$WINEPREFIX/system.reg" ]; then
+    echo "msvc-cross-init-wine: creating $WINEPREFIX"
+    wineboot --init >/dev/null 2>&1
+fi
+
+# No crash dialog, no menu entries. Note what is deliberately *not* set here:
+# the null graphics driver (HKCU\Software\Wine\Drivers\Graphics = ""). Forcing
+# it looks like a stronger version of running headless, but it is worse. A test
+# that probes for a native rendering backend gets far enough to enumerate Vulkan
+# devices through winevulkan and then fails, where against a displayless
+# wineserver it detects no backend and skips cleanly -- a false failure instead
+# of an honest skip. The missing display connection is what makes this headless;
+# this file only removes the dialogs.
+wine reg add 'HKCU\Software\Wine\WineDbg'      /v ShowCrashDialog   /t REG_DWORD /d 0   /f >/dev/null 2>&1
+wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /t REG_SZ  /d ''  /f >/dev/null 2>&1
+
+echo "msvc-cross-init-wine: $WINEPREFIX ready (headless, no dialogs, no menu entries)"
