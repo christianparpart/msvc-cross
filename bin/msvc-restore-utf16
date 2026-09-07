@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Restore UTF-16 files that msvc-wine's install.sh corrupted.
+
+    msvc-restore-utf16 <pristine-tree> <installed-root>
+
+msvc-wine runs its `fixinclude` helper over the MSVC and ATL/MFC headers to
+repair mixed-case #include references. That helper reads every file in the tree
+as bytes and rewrites each line as
+
+    $line =~ s/[\\r\\n]//g;  print FHOUT "$line\\n";
+
+which is correct for the ASCII headers it was written for and destroys anything
+UTF-16. In a UTF-16LE file a line ends with \\r\\0\\n\\0; the substitution removes
+the \\r and \\n bytes but leaves their trailing NULs, then appends a bare \\n. One
+byte is lost per line, so every character after the first line ending is
+byte-shifted and the file stops being UTF-16 at all. It ends up an odd number of
+bytes long, which UTF-16 never is.
+
+This only surfaces with MFC installed, which is not msvc-wine's default: the
+casualties are the localised resource scripts under atlmfc/include/l.*, and the
+symptom is remote from the cause --
+
+    l.deu\\afxolecl.rc(1) : error RC2135 : file not found:
+
+with no filename after the colon, from a resource compiler that is reading
+mojibake.
+
+Nothing is lost by restoring them. fixinclude's #include regex cannot match
+UTF-16 text in the first place, so it never had anything to contribute to these
+files; it only ever damaged them.
+
+Get a pristine tree with:
+
+    ./vsdownload.py --accept-license --dest <tmp> --architecture x64 \\
+        --cache <cache> --only-unpack --with-default no \\
+        Microsoft.VisualStudio.Component.VC.ATLMFC
+"""
+
+import os
+import shutil
+import sys
+
+BOMS = (b'\xff\xfe', b'\xfe\xff')
+
+
+def _is_utf16(path):
+    try:
+        with open(path, 'rb') as handle:
+            return handle.read(2) in BOMS
+    except OSError:
+        return False
+
+
+def main(argv):
+    if len(argv) != 3:
+        sys.stderr.write(__doc__.split('\n\n')[1] + '\n')
+        return 2
+
+    pristine, installed = argv[1], argv[2]
+    if not os.path.isdir(pristine) or not os.path.isdir(installed):
+        sys.stderr.write('msvc-restore-utf16: both arguments must be directories\n')
+        return 2
+
+    # Index the pristine tree by filename plus its immediate parent, which is
+    # enough to disambiguate (l.deu/afxres.rc against l.esn/afxres.rc) without
+    # depending on the two trees having the same layout -- they do not, since
+    # install.sh restructures and lowercases as it goes.
+    index = {}
+    for root, _dirs, files in os.walk(pristine):
+        for name in files:
+            path = os.path.join(root, name)
+            if _is_utf16(path):
+                key = (os.path.basename(root).lower(), name.lower())
+                index.setdefault(key, path)
+
+    restored = skipped = 0
+    for root, _dirs, files in os.walk(installed):
+        for name in files:
+            path = os.path.join(root, name)
+            if os.path.islink(path):
+                continue
+            key = (os.path.basename(root).lower(), name.lower())
+            source = index.get(key)
+            if source is None:
+                continue
+            with open(path, 'rb') as handle:
+                current = handle.read()
+            with open(source, 'rb') as handle:
+                good = handle.read()
+            if current == good:
+                skipped += 1
+                continue
+            shutil.copyfile(source, path)
+            restored += 1
+            print('restored %s (%d -> %d bytes)' % (path, len(current), len(good)))
+
+    print('msvc-restore-utf16: %d restored, %d already intact' % (restored, skipped))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

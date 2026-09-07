@@ -194,6 +194,40 @@ An MFC GUI executable needs an explicit entry point, since MFC supplies
 cl /D_AFXDLL /DUNICODE /D_UNICODE /MD app.cpp /link /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup
 ```
 
+## If you install MFC: repair the localised resources afterwards
+
+`install.sh` runs msvc-wine's `fixinclude` over the ATL/MFC headers to correct
+mixed-case `#include` references. It reads every file in the tree as bytes and
+rewrites each line as `s/[\r\n]//g` plus a fresh `\n` — correct for the ASCII
+headers it was written for, and destructive to anything UTF-16. A UTF-16LE line
+ends `\r\0\n\0`; the `\r` and `\n` bytes go, their trailing NULs stay, one byte
+per line is lost, and every character after the first line ending is
+byte-shifted. The file ends up an odd number of bytes long, which UTF-16 never
+is.
+
+The casualties are `atlmfc/include/l.*/*.rc`, MFC's localised resource scripts —
+72 files in a 14.51 install. It stays invisible until you compile an MFC
+resource for a non-English locale, and then the symptom is nowhere near the
+cause:
+
+```
+l.deu\afxolecl.rc(1) : error RC2135 : file not found:
+```
+
+with no filename after the colon, from a resource compiler reading mojibake.
+
+Restore them from a pristine unpack:
+
+```sh
+./vsdownload.py --accept-license --dest /tmp/mfcraw --architecture x64 \
+                --cache ~/.cache/msvc-wine-pkgs --only-unpack \
+                --with-default no Microsoft.VisualStudio.Component.VC.ATLMFC
+bin/msvc-restore-utf16 /tmp/mfcraw /opt/msvc
+```
+
+Nothing is lost by doing so: `fixinclude`'s `#include` regex cannot match UTF-16
+text in the first place, so it never had anything to contribute to these files.
+
 ## Resource files: which toolchain to use
 
 The `cl.exe` toolchain drives Microsoft's `rc.exe` directly. The `clang-cl` one
