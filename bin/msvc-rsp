@@ -59,6 +59,14 @@ def _translate(token):
     for i in range(len(token)):
         if token[i] != '/':
             continue
+        # The path has to begin right after an option prefix, so anything before
+        # it must not itself look like a path. Without this the scan finds a
+        # match inside a *relative* one: /lib is a real directory on Linux, so
+        # CMakeFiles/libiconv_obj.dir/external/libiconv-1.14/lib/iconv.c.obj
+        # became ...libiconv-1.14z:/lib/iconv.c.obj and the linker reported a
+        # missing input file that had never been missing.
+        if '/' in token[1:i]:
+            break
         if _is_hostpath(token[i:]):
             return token[:i] + 'z:' + token[i:]
     return token
