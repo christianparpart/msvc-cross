@@ -294,6 +294,30 @@ Two things to expect when building ports this way:
 - Ports that need a Windows-hosted build tool of their own — anything reaching
   for `nasm`, `perl` or a prebuilt `.exe` — are where this stops being routine.
 
+## Run the build under a pty
+
+```sh
+bin/wine-pty cmake --build --preset <preset>
+```
+
+Qt's command line tools choose between printing a message and showing a dialog
+with `QCommandLineParser`'s `displayMessageBox()`, which reduces to
+`if (GetConsoleWindow()) return false;`. Wine reports a console window only when
+the process actually has a console, and it has none when its standard handles
+are a pipe or a file — which is exactly what a build system gives it. So a Qt
+tool that wants to print anything, usage text included, opens a `MessageBox`.
+
+Both failure modes are unpleasant and neither names its cause. With a display,
+dialogs pile up on the desktop, each blocking its process until dismissed.
+Without one, there is nowhere to show the dialog and the process never returns:
+CMake's generate step runs `rcc.exe -h` to probe for `--list` support, and it
+hung there indefinitely — no output, no CPU, which reads as a deadlock in CMake
+rather than a message nobody can see. Generate took 1.2 seconds under a pty and
+forever without.
+
+A pty is a console as far as Wine is concerned. Attaching one at the top of the
+build is enough, since every child inherits it.
+
 ## Keeping a build off the desktop
 
 A build starts thousands of short-lived Windows processes, and Wine's defaults
