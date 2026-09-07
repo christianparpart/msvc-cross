@@ -184,9 +184,33 @@ the two compilers.
 vcpkg install ms-gsl:x64-windows --overlay-triplets=$MSVC_CROSS_ROOT/vcpkg-triplets
 ```
 
-`VCPKG_CMAKE_SYSTEM_NAME Windows` in that file is load-bearing: without it vcpkg
-infers the target OS from the host and builds Linux binaries despite the triplet
-name.
+`vcpkg-triplets/x64-windows-clangcl.cmake` is the same thing for the clang-cl
+toolchain. It is a separate triplet rather than a switch because vcpkg keys its
+binary cache on the triplet name, and sharing one name between two compilers
+would let a `cl.exe`-built package satisfy a `clang-cl` build from cache. The two
+are ABI-compatible, so it would usually work — which is what makes it a bad
+thing to leave to chance.
+
+Neither file sets `VCPKG_CMAKE_SYSTEM_NAME`, and that is deliberate rather than an
+oversight. vcpkg spells "the target is Windows" as an *empty*
+`VCPKG_CMAKE_SYSTEM_NAME`; setting it to `Windows` matches none of its branches
+and leaves `VCPKG_TARGET_IS_WINDOWS` off, so ports take their Unix path while the
+compiler underneath is still MSVC. openssl then runs its `./Configure` for a Unix
+target and fails in a way that says nothing about the cause. What makes the build
+target Windows is the chainloaded toolchain, which sets `CMAKE_SYSTEM_NAME`
+itself.
+
+Two things to expect when building ports this way:
+
+- **`mspdbsrv.exe` can wedge vcpkg.** The MSVC PDB server outlives the compiler
+  that spawned it and inherits its file descriptors, vcpkg's lock file among
+  them, so a later `vcpkg install` fails with *"another vcpkg may be running
+  against the same directory"* and no vcpkg is running at all. Kill the stray
+  `mspdbsrv.exe` and remove the `vcpkg-running.lock` files. The toolchains ask
+  for `/Z7` precisely to keep it out of the picture, but a port that sets its own
+  debug information format can still bring it back.
+- Ports that need a Windows-hosted build tool of their own — anything reaching
+  for `nasm`, `perl` or a prebuilt `.exe` — are where this stops being routine.
 
 ## Keeping a build off the desktop
 
