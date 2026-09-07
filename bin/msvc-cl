@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# msvc-wine's cl, with @response-file contents path-translated first, and with
+# no display so a diagnostic can never become a dialog on someone's desktop.
+# See bin/msvc-rsp.
+unset DISPLAY WAYLAND_DISPLAY
+exec "$(dirname "$0")/msvc-rsp" "${MSVC_WINE_ROOT:-/opt/msvc}/bin/x64/cl" "$@"

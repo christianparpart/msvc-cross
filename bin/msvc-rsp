@@ -28,12 +28,13 @@ import re
 import subprocess
 import sys
 
-# /OPT:/absolute/path -- rewrite only what follows the colon.
-_OPT_WITH_PATH = re.compile(r'^([-/][A-Za-z][A-Za-z0-9]*:)(/.*)$')
-
-
 def _is_hostpath(text):
-    """True when text looks like an absolute host path that really exists."""
+    """True when text looks like an absolute host path that really exists.
+
+    The two-component requirement is what keeps "/nologo" and "/machine:x64"
+    out: their parent would be "/", which is a directory, so existence alone
+    would happily accept them.
+    """
     if not text.startswith('/') or '/' not in text[1:]:
         return False
     parent = os.path.dirname(text)
@@ -41,11 +42,25 @@ def _is_hostpath(text):
 
 
 def _translate(token):
-    if _is_hostpath(token):
-        return 'z:' + token
-    match = _OPT_WITH_PATH.match(token)
-    if match and _is_hostpath(match.group(2)):
-        return match.group(1) + 'z:' + match.group(2)
+    """Rewrite the host path inside a token, wherever in the token it starts.
+
+    MSVC attaches paths to options with no separator at all -- /FI<path>,
+    /Yc<path>, /Fo<path>, /I<path>, /external:I<path> -- and that is precisely
+    what breaks: cl reads "/FI/home/..." as "/FI" followed by a *new* option
+    beginning with "/", and reports "D8004: '/FI' requires an argument" about a
+    command line that looks perfectly well-formed. So the path is located by
+    scanning for the first "/" that begins a real directory rather than by
+    matching a fixed set of option spellings.
+    """
+    # A define is text, not a path; "/DFOO=/bar" must be left exactly as it is.
+    if token[:2] in ('-D', '/D'):
+        return token
+
+    for i in range(len(token)):
+        if token[i] != '/':
+            continue
+        if _is_hostpath(token[i:]):
+            return token[:i] + 'z:' + token[i:]
     return token
 
 

@@ -26,16 +26,22 @@ if(NOT EXISTS "${_msvc_bin}/cl")
         "or point MSVC_WINE_ROOT at an existing installation.")
 endif()
 
-set(CMAKE_C_COMPILER   "${_msvc_bin}/cl")
-set(CMAKE_CXX_COMPILER "${_msvc_bin}/cl")
-set(CMAKE_RC_COMPILER  "${_msvc_bin}/rc")
+# Everything goes through the shims in bin/, which translate @response-file
+# contents before the tool sees them. This is not optional once response files
+# are forced (below): cl reads "/FI/home/..." as "/FI" followed by a new option,
+# and fails with "D8004: '/FI' requires an argument" about a command line that
+# looks entirely well-formed.
+set(_shim "${CMAKE_CURRENT_LIST_DIR}/../bin")
+set(CMAKE_C_COMPILER   "${_shim}/msvc-cl")
+set(CMAKE_CXX_COMPILER "${_shim}/msvc-cl")
+set(CMAKE_RC_COMPILER  "${_shim}/msvc-rc")
 # link and lib go through shims that path-translate @response-file contents,
 # which msvc-wine's own wrappers cannot see into. Forcing response files (below)
 # makes that translation load-bearing rather than optional -- an absolute Unix
 # path inside an rsp reads as an option to the linker, not as a library.
-set(CMAKE_LINKER       "${CMAKE_CURRENT_LIST_DIR}/../bin/msvc-link")
-set(CMAKE_AR           "${CMAKE_CURRENT_LIST_DIR}/../bin/msvc-lib")
-set(CMAKE_MT           "${_msvc_bin}/mt")
+set(CMAKE_LINKER       "${_shim}/msvc-link")
+set(CMAKE_AR           "${_shim}/msvc-lib")
+set(CMAKE_MT           "${_shim}/msvc-mt")
 
 # Do NOT pin CMAKE_<LANG>_COMPILER_ID here. CMake identifies the wrappers as
 # MSVC by itself, and pinning it makes Windows-MSVC.cmake read
