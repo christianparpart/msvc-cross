@@ -98,12 +98,17 @@ its `CMakePresets.json`:
 
 ```json
 {
-  "version": 6,
-  "include": ["/path/to/msvc-cross/presets/windows-cross.json"],
+  "version": 7,
+  "include": ["$penv{HOME}/projects/msvc-cross/presets/windows-cross.json"],
   "configurePresets": [
     {
+      "name": "msvc-cross-location",
+      "hidden": true,
+      "environment": { "MSVC_CROSS_ROOT": "$penv{HOME}/projects/msvc-cross" }
+    },
+    {
       "name": "cross-cl-release",
-      "inherits": ["base", "msvc-wine-x64"],
+      "inherits": ["msvc-cross-location", "msvc-wine-x64", "base"],
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ]
@@ -112,7 +117,19 @@ its `CMakePresets.json`:
 
 Inheriting the project's own hidden base preset keeps its generator, build
 directory layout and options; the fragment here contributes only the toolchain
-and two cross-cutting cache variables.
+and two cross-cutting cache variables. Note the inheritance order --
+`msvc-cross-location` must come before `msvc-wine-x64`, because the latter's
+`toolchainFile` reads `$env{MSVC_CROSS_ROOT}`.
+
+Two details are worth copying rather than simplifying:
+
+- **`$penv{...}`, not `$env{...}`, in `include`.** CMake only expands
+  `$penv{}` there. `${fileDir}` is no help either: it resolves against the file
+  doing the *including*, not the fragment, so a fragment cannot locate itself.
+- **Resolve the location from `$penv{HOME}` rather than requiring
+  `MSVC_CROSS_ROOT` to be exported.** An unresolvable `include` is a hard error
+  that takes down the *whole* preset file, so a missing environment variable
+  would break the project's ordinary Linux presets too, not just the cross ones.
 
 ## What the toolchain files do that a hand-written one would miss
 

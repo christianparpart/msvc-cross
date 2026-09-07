@@ -16,10 +16,14 @@ set(VCPKG_LIBRARY_LINKAGE dynamic)
 # ports for Linux despite the triplet name.
 set(VCPKG_CMAKE_SYSTEM_NAME Windows)
 
-if(DEFINED ENV{MSVC_CROSS_ROOT})
-    set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{MSVC_CROSS_ROOT}/toolchains/msvc-wine-x64.cmake")
-else()
-    message(FATAL_ERROR "MSVC_CROSS_ROOT is not set; source env/msvc-env.sh first.")
-endif()
+# Self-locating: the toolchain file is a sibling of this triplet's directory,
+# so the triplet works from any checkout without an environment variable.
+get_filename_component(_msvc_cross_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${_msvc_cross_root}/toolchains/msvc-wine-x64.cmake")
 
-set(ENV{PATH} "$ENV{MSVC_WINE_ROOT}/bin/x64:$ENV{PATH}")
+if(DEFINED ENV{MSVC_WINE_ROOT})
+    set(_msvc_wine_root "$ENV{MSVC_WINE_ROOT}")
+else()
+    set(_msvc_wine_root "/opt/msvc")
+endif()
+set(ENV{PATH} "${_msvc_wine_root}/bin/x64:$ENV{PATH}")

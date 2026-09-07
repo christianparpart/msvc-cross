@@ -103,6 +103,12 @@ string(APPEND CMAKE_RC_FLAGS_INIT " ${_rc_flags}")
 find_program(WINE_EXECUTABLE NAMES wine64 wine REQUIRED)
 set(CMAKE_CROSSCOMPILING_EMULATOR "${WINE_EXECUTABLE}")
 
+# CMake's own InstallRequiredSystemLibraries aborts when cross-compiling: it
+# locates the redistributable CRT through cmake_host_system_information's
+# VS_<n>_DIR query, which does not exist on a Linux host. Put our shim ahead of
+# CMAKE_ROOT/Modules so include(InstallRequiredSystemLibraries) resolves to it.
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../cmake-shims")
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
