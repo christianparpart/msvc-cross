@@ -58,9 +58,9 @@ build ever falls back to `/Zi`. The toolchain files avoid that by default.
 ## Setup
 
 ```sh
-# 1. Get msvc-wine and bootstrap a Wine prefix
+# 1. Get msvc-wine and prepare a Wine prefix dedicated to building
 git clone https://github.com/mstorsjo/msvc-wine ~/projects/msvc-wine
-wineboot --init && wineserver -w
+~/projects/msvc-cross/env/msvc-cross-init-wine
 
 # 2. Download MSVC + the Windows SDK from Microsoft, and install
 sudo mkdir -p /opt/msvc && sudo chown "$USER:$USER" /opt/msvc
@@ -188,20 +188,67 @@ vcpkg install ms-gsl:x64-windows --overlay-triplets=$MSVC_CROSS_ROOT/vcpkg-tripl
 infers the target OS from the host and builds Linux binaries despite the triplet
 name.
 
+## Keeping a build off the desktop
+
+A build starts thousands of short-lived Windows processes, and Wine's defaults
+assume you are running an application rather than a toolchain. Anything that
+decides to show something puts it on screen: Qt's `QCommandLineParser` reports
+usage through a `MessageBox` when the process has no console, Wine allocates a
+console window for a console program with output to show, and a crash becomes a
+dialog that blocks its process until dismissed. During a parallel build that is
+a stream of windows over whatever you were doing.
+
+`env/msvc-cross-init-wine` creates a prefix at `~/.wine-msvc`, separate from
+`~/.wine` so ordinary Wine use is unaffected, and `env/msvc-env.sh` starts its
+`wineserver` **with no display connection at all**. That is the part that holds:
+the wineserver owns the X or Wayland connection and every client inherits its
+ability to create a window, so unsetting `DISPLAY` for one client changes
+nothing once a display-capable server is already running. Test binaries still
+run; they run headless, which is what Qt's `offscreen` platform plugin is for.
+
+What this deliberately does *not* do is force Wine's null graphics driver
+(`HKCU\Software\Wine\Drivers\Graphics = ""`). That looks like a stronger form
+of the same thing and is worse: a test probing for a native rendering backend
+gets far enough to enumerate Vulkan devices through `winevulkan` and then fails,
+where against a displayless wineserver it finds no backend and skips cleanly. A
+false failure is worse than an honest skip.
+
+
 ## Notes and gotchas
 
 - **Keep a `wineserver` alive.** Without a persistent one, every `cl.exe`
-  invocation pays a full Wine server startup and teardown. `env/msvc-env.sh`
-  starts one. Beware that `wineserver -w` *waits for the server to exit* — it is
-  not a readiness probe.
+  invocation pays a full Wine server startup and teardown — the single biggest
+  factor in cross build times. `env/msvc-env.sh` starts one. Beware that
+  `wineserver -w` *waits for the server to exit*; it is not a readiness probe,
+  and using it as one hangs.
+- **`CMAKE_CROSSCOMPILING_EMULATOR` is `bin/wine-exec`, not `wine`.** CTest and
+  the test frameworks it drives pass absolute host paths to the binary under
+  test, and a Windows command line parser reads a leading `/` as the start of an
+  option. Catch2 receives `--out /home/you/build/listing.json` as "`--out` with
+  no argument", fails discovery, and reports a perfectly good binary as broken.
+  `wine-exec` rewrites such arguments to `Z:\...` first, conservatively enough
+  that `/nologo` and `/W4` are left alone.
+- **Qt applications need a `qt.conf`.** Qt's plugins and QML modules are loaded
+  by path rather than linked, so nothing copies them next to the executable and
+  nothing points at them. Qt then reports "no Qt platform plugin could be
+  initialized" through a message box and calls `qFatal`, which is `abort()`,
+  which MSVC raises as `__fastfail` — so a headless run shows no output
+  whatsoever and exits `0xC0000409`, which reads like memory corruption and is
+  nothing of the sort. A two-line `qt.conf` naming the Qt prefix settles it,
+  along with the Qt kit's `bin` on `WINEPATH` for the plugins' own DLLs.
+- **CMake has no C++26 for MSVC.** `CMAKE_CXX26_STANDARD_COMPILE_OPTION` is unset
+  for MSVC at every version, so requesting the dialect is a hard generation error
+  rather than a failed feature probe. `CMAKE_CXX_STANDARD_LATEST` — 23 for MSVC,
+  26 for GCC and Clang — is the variable to branch on.
 - **Path length.** MSVC still enforces roughly 260 characters, and Wine's `z:\`
   prefix eats into that budget. Short install and build paths help.
 - **`__cplusplus` reports `199711` under `cl.exe`** unless the project passes
   `/Zc:__cplusplus`. That is real MSVC behaviour faithfully reproduced, not an
   artifact of this setup.
 - `binfmt_misc` with `windowsPE` registered (Fedora's `wine` package does this)
-  lets Windows `.exe` files run by path, which is handy for Windows-side host
-  tools such as Qt's `moc.exe`.
+  lets Windows `.exe` files run by path, which is what allows a Windows Qt kit's
+  `moc.exe` and `rcc.exe` to serve as build tools directly. They need the execute
+  bit, which `aqt` does not set.
 
 ## Smoke test
 
