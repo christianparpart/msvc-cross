@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# msvc-wine's lib, with @response-file contents path-translated first.
+# See bin/msvc-rsp for why that is necessary.
+exec "$(dirname "$0")/msvc-rsp" "${MSVC_WINE_ROOT:-/opt/msvc}/bin/x64/lib" "$@"

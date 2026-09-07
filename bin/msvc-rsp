@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Run an msvc-wine tool, translating Unix paths inside @response files first.
+
+    msvc-rsp <tool> [args...]
+
+msvc-wine's wine-msvc.sh rewrites absolute Unix paths in the *arguments* to
+Wine's z: drive, and that is enough as long as everything is on the command
+line. It is not enough once a response file is involved: link.exe and lib.exe
+read those themselves, well past any shell that could have rewritten them, and
+an absolute Unix path inside one is not merely unreadable -- a leading "/" is
+an option prefix on Windows, so the linker silently treats the library as an
+unrecognised switch and the build fails with unresolved symbols that point
+nowhere near the cause.
+
+Response files are unavoidable here. Windows caps a command line at 32767
+characters and cross builds blow through that (see the toolchain files), so the
+choice is between a hang and this.
+
+The rewrite is conservative in the same way bin/wine-exec is: a token is only
+touched when it looks like an absolute path *and* its parent directory exists,
+so "/nologo", "/machine:x64" and friends are left alone. "/DEF:/path/to.def"
+and similar option-with-path forms are handled by rewriting only the part after
+the colon.
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+# /OPT:/absolute/path -- rewrite only what follows the colon.
+_OPT_WITH_PATH = re.compile(r'^([-/][A-Za-z][A-Za-z0-9]*:)(/.*)$')
+
+
+def _is_hostpath(text):
+    """True when text looks like an absolute host path that really exists."""
+    if not text.startswith('/') or '/' not in text[1:]:
+        return False
+    parent = os.path.dirname(text)
+    return bool(parent) and os.path.isdir(parent)
+
+
+def _translate(token):
+    if _is_hostpath(token):
+        return 'z:' + token
+    match = _OPT_WITH_PATH.match(token)
+    if match and _is_hostpath(match.group(2)):
+        return match.group(1) + 'z:' + match.group(2)
+    return token
+
+
+def _split(text):
+    """Split response-file content, honouring MSVC's double-quote grouping."""
+    out, cur, quoted = [], [], False
+    for ch in text:
+        if ch == '"':
+            quoted = not quoted
+        elif ch.isspace() and not quoted:
+            if cur:
+                out.append(''.join(cur))
+                cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        out.append(''.join(cur))
+    return out
+
+
+def _quote(token):
+    return '"%s"' % token if any(c.isspace() for c in token) else token
+
+
+def main(argv):
+    if len(argv) < 2:
+        sys.stderr.write('usage: msvc-rsp <tool> [args...]\n')
+        return 2
+
+    tool, args, rewritten = argv[1], [], []
+    for arg in argv[2:]:
+        if not arg.startswith('@') or not os.path.isfile(arg[1:]):
+            args.append(arg)
+            continue
+
+        original = arg[1:]
+        content = open(original, 'r', errors='surrogateescape').read()
+        translated = ' '.join(_quote(_translate(t)) for t in _split(content))
+
+        # Sibling file, so it lands in the build tree next to the original and
+        # is as easy to inspect when a link goes wrong.
+        copy = original + '.wine'
+        with open(copy, 'w', errors='surrogateescape') as handle:
+            handle.write(translated + '\n')
+        args.append('@' + copy)
+        rewritten.append(copy)
+
+    return subprocess.call([tool] + args)
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))

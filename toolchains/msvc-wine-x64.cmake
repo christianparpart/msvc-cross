@@ -29,8 +29,12 @@ endif()
 set(CMAKE_C_COMPILER   "${_msvc_bin}/cl")
 set(CMAKE_CXX_COMPILER "${_msvc_bin}/cl")
 set(CMAKE_RC_COMPILER  "${_msvc_bin}/rc")
-set(CMAKE_LINKER       "${_msvc_bin}/link")
-set(CMAKE_AR           "${_msvc_bin}/lib")
+# link and lib go through shims that path-translate @response-file contents,
+# which msvc-wine's own wrappers cannot see into. Forcing response files (below)
+# makes that translation load-bearing rather than optional -- an absolute Unix
+# path inside an rsp reads as an option to the linker, not as a library.
+set(CMAKE_LINKER       "${CMAKE_CURRENT_LIST_DIR}/../bin/msvc-link")
+set(CMAKE_AR           "${CMAKE_CURRENT_LIST_DIR}/../bin/msvc-lib")
 set(CMAKE_MT           "${_msvc_bin}/mt")
 
 # Do NOT pin CMAKE_<LANG>_COMPILER_ID here. CMake identifies the wrappers as
