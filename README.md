@@ -158,6 +158,54 @@ on its own. Pinning it makes `Windows-MSVC.cmake` read
 `CMAKE_C_COMPILER_VERSION` even in projects that never enable C, which is empty,
 and the configure aborts with *"MSVC compiler version not detected properly"*.
 
+## MFC and ATL
+
+`vsdownload.py` has no `--with-mfc` switch, which makes MFC look unavailable. It
+takes component names positionally instead:
+
+```sh
+./vsdownload.py --accept-license --dest /opt/msvc --architecture x64 \
+                --with-default yes Microsoft.VisualStudio.Component.VC.ATLMFC
+```
+
+`--with-default yes` is not optional. Naming any package flips the default
+component set *off*, so without it you get MFC and no compiler, and `install.sh`
+stops with "No suitable MSVC version found".
+
+Everything else is already in place: `msvcenv.sh` puts `atlmfc\include` first on
+`INCLUDE` and `atlmfc\lib\<arch>` first on `LIB`, and `install.sh` runs
+`fixinclude` over the ATL/MFC headers. That is all MFC needs, because
+`mfc140u.lib` is auto-linked by `#pragma comment(lib)` inside the afx headers.
+
+Two things to know when building an MFC target with Ninja:
+
+- **`CMAKE_MFC_FLAG` does nothing.** It is a Visual Studio generator feature;
+  CMake's own documentation says so. Define `_AFXDLL` yourself for the shared
+  MFC runtime.
+- **`FindMFC.cmake` works when cross-compiling.** It gates on
+  `WIN32 AND NOT UNIX`, and with `CMAKE_SYSTEM_NAME=Windows` only
+  `Platform/Windows.cmake` loads — so `WIN32` is set, `UNIX` is not, and its
+  `#include <afxwin.h>` probe runs rather than being skipped.
+
+An MFC GUI executable needs an explicit entry point, since MFC supplies
+`AfxWinMain` rather than `main`:
+
+```sh
+cl /D_AFXDLL /DUNICODE /D_UNICODE /MD app.cpp /link /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup
+```
+
+## Resource files: which toolchain to use
+
+The `cl.exe` toolchain drives Microsoft's `rc.exe` directly. The `clang-cl` one
+cannot: whenever the compiler is clang-cl, CMake routes resources through
+`cmake -E cmake_llvm_rc` and forwards `-clang:-MD -clang:-MF …` depfile flags to
+the RC stage, which real `rc.exe` rejects. So clang-cl is pinned to `llvm-rc`.
+
+That is a real constraint rather than a cosmetic one, because **llvm-rc cannot
+read UTF-16 LE `.rc` files — ATLMFC's own `afxres.rc` is one — and mis-decodes
+Windows-1252**, which is how a German dialog resource turns into mojibake. If a
+project's resources are in either encoding, use the `cl.exe` toolchain.
+
 ## Pinning a toolset
 
 `vsdownload.py` defaults to the newest Visual Studio. To install an older

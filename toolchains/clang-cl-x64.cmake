@@ -23,9 +23,20 @@ set(CMAKE_CXX_COMPILER clang-cl)
 set(CMAKE_C_COMPILER_TARGET   x86_64-pc-windows-msvc)
 set(CMAKE_CXX_COMPILER_TARGET x86_64-pc-windows-msvc)
 set(CMAKE_LINKER      lld-link)
-set(CMAKE_RC_COMPILER llvm-rc)
 set(CMAKE_AR          llvm-lib)
 set(CMAKE_MT          llvm-mt)
+
+# llvm-rc, not Microsoft's rc.exe, and not by preference. Whenever the compiler
+# is clang-cl, CMake routes resource compilation through `cmake -E cmake_llvm_rc`
+# -- preprocess with clang-cl, then hand the result to the RC tool -- and it
+# forwards its `-clang:-MD -clang:-MF ...` depfile flags to that second stage.
+# Real rc.exe rejects them, so substituting it here breaks the build outright.
+#
+# That matters because llvm-rc cannot read UTF-16 LE .rc files (ATLMFC's own
+# afxres.rc is one) and mis-decodes Windows-1252, which is how a German dialog
+# resource becomes mojibake. A project whose resources are in either encoding
+# must therefore use the cl.exe toolchain, which drives Microsoft's rc directly.
+set(CMAKE_RC_COMPILER llvm-rc)
 
 # msvc-wine's msvcenv-native.sh derives INCLUDE and LIB from the installed
 # toolchain. Resolve them here and bake them into the flags rather than relying
