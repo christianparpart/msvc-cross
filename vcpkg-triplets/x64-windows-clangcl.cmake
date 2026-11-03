@@ -44,3 +44,32 @@ if(NOT DEFINED ENV{WINEPREFIX})
     endif()
 endif()
 set(ENV{WINEDEBUG} "-all")
+
+# clang-cl reads INCLUDE and lld-link reads LIB; the CMake toolchain bakes them into flags, a meson cross file
+# cannot, so a port gets them from the environment, derived from the same msvc-wine installation.
+if(NOT DEFINED ENV{MSVC_WINE_ROOT})
+    set(ENV{MSVC_WINE_ROOT} "/opt/msvc")
+endif()
+foreach(_var IN ITEMS INCLUDE LIB)
+    execute_process(
+        COMMAND bash -c "BIN='$ENV{MSVC_WINE_ROOT}/bin/x64' . '$ENV{MSVC_WINE_ROOT}/msvcenv-native.sh' >/dev/null 2>&1 && printf '%s' \"\$${_var}\""
+        OUTPUT_VARIABLE _value RESULT_VARIABLE _rc)
+    if(NOT _rc EQUAL 0 OR _value STREQUAL "")
+        message(FATAL_ERROR "Could not determine ${_var} from $ENV{MSVC_WINE_ROOT}/msvcenv-native.sh")
+    endif()
+    set(ENV{${_var}} "${_value}")
+endforeach()
+
+# Meson ports. The cross file is generated rather than shipped because it names the MSVC version, and lands in
+# the user cache rather than the checkout. See meson/clang-cl-x64.ini.in for why meson needs one at all.
+file(STRINGS "$ENV{MSVC_WINE_ROOT}/bin/x64/msvcenv.sh" _msvc_ver_line REGEX "^MSVCVER=")
+string(REGEX REPLACE "^MSVCVER=14\\.([0-9]+).*" "19.\\1" MSVC_CROSS_MS_COMPAT_VERSION "${_msvc_ver_line}")
+if(DEFINED ENV{XDG_CACHE_HOME})
+    set(_msvc_cross_cache "$ENV{XDG_CACHE_HOME}/msvc-cross")
+else()
+    set(_msvc_cross_cache "$ENV{HOME}/.cache/msvc-cross")
+endif()
+configure_file("${_msvc_cross_root}/meson/clang-cl-x64.ini.in" "${_msvc_cross_cache}/clang-cl-x64.ini" @ONLY)
+set(VCPKG_MESON_CROSS_FILE "${_msvc_cross_cache}/clang-cl-x64.ini")
+set(VCPKG_MESON_CROSS_FILE_DEBUG "${_msvc_cross_root}/meson/clang-cl-x64-debug.ini")
+set(VCPKG_MESON_CROSS_FILE_RELEASE "${_msvc_cross_root}/meson/clang-cl-x64-release.ini")

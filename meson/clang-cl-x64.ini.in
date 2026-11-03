@@ -1,0 +1,27 @@
+# Meson cross file for vcpkg ports built with clang-cl from a Linux host. Generated from this template by
+# vcpkg-triplets/x64-windows-clangcl.cmake, which knows the installed MSVC version.
+#
+# vcpkg considers an x64 Windows build on an x64 host native and gives meson no cross file, so meson takes
+# the Linux machine for the host and refuses things only a Windows host allows (it will not link a non-PIC
+# static library into a shared one). This file is handed over as VCPKG_MESON_CROSS_FILE to say the host is
+# Windows. clang-cl and lld-link find the headers and libraries through INCLUDE and LIB, which the triplet exports.
+
+[binaries]
+c = ['clang-cl', '--target=x86_64-pc-windows-msvc', '-fuse-ld=lld', '-fms-compatibility-version=@MSVC_CROSS_MS_COMPAT_VERSION@']
+cpp = ['clang-cl', '--target=x86_64-pc-windows-msvc', '-fuse-ld=lld', '-fms-compatibility-version=@MSVC_CROSS_MS_COMPAT_VERSION@']
+c_ld = ['lld-link']
+cpp_ld = ['lld-link']
+ar = ['llvm-lib', '/machine:x64']
+windres = 'llvm-rc'
+mt = 'llvm-mt'
+pkg-config = 'pkg-config'
+exe_wrapper = ['wine']
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true

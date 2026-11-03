@@ -134,7 +134,9 @@ string(APPEND CMAKE_RC_FLAGS_INIT " ${_rc_flags}")
 # CMake sizes its own response-file heuristics against the *host* platform, and
 # a Linux host has a limit two orders of magnitude higher, so left alone it
 # decides response files are unnecessary. They are not.
-set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON CACHE INTERNAL "")
+# Not CMAKE_NINJA_FORCE_RESPONSE_FILE, which would extend this to every rule: clang-cl, lld-link and llvm-lib are
+# native and have no 32 KiB limit, and NASM (libjpeg-turbo) reads response files without unquoting, so the
+# quoted include paths CMake writes there break its assembler step.
 foreach(_lang C CXX RC)
     set(CMAKE_${_lang}_USE_RESPONSE_FILE_FOR_OBJECTS   1)
     set(CMAKE_${_lang}_USE_RESPONSE_FILE_FOR_INCLUDES  1)
