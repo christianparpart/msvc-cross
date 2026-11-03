@@ -60,6 +60,7 @@ def main(argv):
         os._exit(127)
 
     out = sys.stdout.buffer
+    status = None
     while True:
         try:
             ready, _, _ = select.select([master], [], [], 1.0)
@@ -74,11 +75,15 @@ def main(argv):
                 break
             out.write(_ESCAPES.sub(b'', data).replace(b'\r\n', b'\n'))
             out.flush()
-        elif os.waitpid(pid, os.WNOHANG)[0] == pid:
-            break
+        else:
+            reaped, status = os.waitpid(pid, os.WNOHANG)
+            if reaped == pid:
+                break
+            status = None
 
     os.close(master)
-    _, status = os.waitpid(pid, 0)
+    if status is None:
+        _, status = os.waitpid(pid, 0)
     if os.WIFSIGNALED(status):
         return 128 + os.WTERMSIG(status)
     return os.WEXITSTATUS(status)
