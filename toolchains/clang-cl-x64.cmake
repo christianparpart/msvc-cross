@@ -94,7 +94,10 @@ if(NOT MSVC_CROSS_MS_COMPAT_VERSION)
 endif()
 message(STATUS "clang-cl targeting MSVC ${_msvc_toolset} (-fms-compatibility-version=${MSVC_CROSS_MS_COMPAT_VERSION})")
 
-set(_common "-fms-compatibility-version=${MSVC_CROSS_MS_COMPAT_VERSION}${_inc_flags}")
+# -fuse-ld=lld selects lld-link when something drives clang-cl as the linker. CMake does not, but the build
+# systems vcpkg ports use (meson, configure scripts) do, and without it clang-cl goes looking for link.exe on PATH.
+# It is a linker-driver option and is ignored, silently, when only compiling.
+set(_common "-fms-compatibility-version=${MSVC_CROSS_MS_COMPAT_VERSION} -fuse-ld=lld${_inc_flags}")
 string(APPEND CMAKE_C_FLAGS_INIT   " ${_common}")
 string(APPEND CMAKE_CXX_FLAGS_INIT " ${_common}")
 
