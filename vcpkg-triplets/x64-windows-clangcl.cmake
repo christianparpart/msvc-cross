@@ -31,3 +31,16 @@ set(VCPKG_LIBRARY_LINKAGE dynamic)
 
 get_filename_component(_msvc_cross_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${_msvc_cross_root}/toolchains/clang-cl-x64.cmake")
+
+# Ports built with meson or configure compile and run test executables on the build machine, because vcpkg
+# treats a Linux-hosted x64 Windows build as native. Those run through binfmt_misc's Wine, and vcpkg scrubs
+# the environment before it starts a port, so without this they land in the user's ~/.wine instead of the
+# prefix env/msvc-cross-init-wine prepared (the one with the debug C runtime in it).
+if(NOT DEFINED ENV{WINEPREFIX})
+    if(DEFINED ENV{MSVC_CROSS_WINEPREFIX})
+        set(ENV{WINEPREFIX} "$ENV{MSVC_CROSS_WINEPREFIX}")
+    else()
+        set(ENV{WINEPREFIX} "$ENV{HOME}/.wine-msvc")
+    endif()
+endif()
+set(ENV{WINEDEBUG} "-all")

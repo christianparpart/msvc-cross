@@ -46,4 +46,15 @@ fi
 wine reg add 'HKCU\Software\Wine\WineDbg'      /v ShowCrashDialog   /t REG_DWORD /d 0   /f >/dev/null 2>&1
 wine reg add 'HKCU\Software\Wine\DllOverrides' /v winemenubuilder.exe /t REG_SZ  /d ''  /f >/dev/null 2>&1
 
+# The debug C runtime. Wine ships the release one only, so anything linked /MDd -- the sanity executable
+# a meson-built vcpkg port compiles and runs in its Debug configuration, or a Debug test binary -- dies at
+# load with "Library ucrtbased.dll not found" and an opaque exit code. msvc-wine downloads these; they only
+# have to be put where Wine looks.
+msvc_root="${MSVC_WINE_ROOT:-/opt/msvc}"
+system32="$WINEPREFIX/drive_c/windows/system32"
+for dll in "$msvc_root"/VC/Redist/MSVC/*/debug_nonredist/x64/Microsoft.VC*.DebugCRT/*.dll \
+           "$msvc_root"/kits/10/bin/*/x64/ucrt/ucrtbased.dll; do
+    [ -f "$dll" ] && cp -u "$dll" "$system32/"
+done
+
 echo "msvc-cross-init-wine: $WINEPREFIX ready (headless, no dialogs, no menu entries)"
