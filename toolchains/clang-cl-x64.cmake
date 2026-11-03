@@ -104,6 +104,11 @@ set(_common "-fms-compatibility-version=${MSVC_CROSS_MS_COMPAT_VERSION} -fuse-ld
 string(APPEND CMAKE_C_FLAGS_INIT   " ${_common}")
 string(APPEND CMAKE_CXX_FLAGS_INIT " ${_common}")
 
+# clang-cl defaults to C++14, where `static std::atomic<T> x = nullptr;` is a deleted-copy error; cl.exe has the
+# C++17 guaranteed elision whatever its default says, and code written against it relies on that. A project or
+# port that sets its own standard comes after this on the command line and wins.
+string(APPEND CMAKE_CXX_FLAGS_INIT " -clang:-std=c++17")
+
 foreach(_kind EXE SHARED MODULE)
     string(APPEND CMAKE_${_kind}_LINKER_FLAGS_INIT " ${_lib_flags}")
 endforeach()
