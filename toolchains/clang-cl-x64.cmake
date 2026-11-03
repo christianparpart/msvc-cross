@@ -61,6 +61,9 @@ _msvc_cross_query(INCLUDE _msvc_include)
 _msvc_cross_query(LIB     _msvc_lib)
 
 # Both are ";"-separated, which is already a CMake list.
+#
+# Last, headers that spell an SDK file in a case Windows would not mind and a Linux file system does.
+list(APPEND _msvc_include "${CMAKE_CURRENT_LIST_DIR}/../include-aliases")
 set(_inc_flags "")
 foreach(_dir IN LISTS _msvc_include)
     if(_dir)
