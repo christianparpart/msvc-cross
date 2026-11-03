@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Write a clang virtual file system overlay that makes SDK directories case-insensitive.
+
+    msvc-case-overlay <overlay.json> <dir> [<dir>...]
+
+Windows headers and import libraries are found by a file system that ignores case, and code written against
+it spells them any way it likes: <SYS/TIMEB.H>, <Winuser.h>, Bcrypt.lib. On Linux those names do not resolve.
+The overlay lists every file below each given directory and tells clang to compare names without regard to
+case. Hand it to clang-cl with `-vfsoverlay <file>` and to lld-link with `/vfsoverlay:<file>`; names that
+are not in it fall through to the real file system, so nothing is hidden.
+
+The file is written atomically and left alone when its content would not change, so concurrent configures
+and the timestamp-driven rebuild logic of build tools do not trip over it.
+"""
+
+import json
+import os
+import sys
+
+
+def tree(directory):
+    """The overlay entries for the contents of `directory`, directories first by name."""
+    entries = []
+    for entry in sorted(os.scandir(directory), key=lambda e: e.name):
+        if entry.is_dir(follow_symlinks=True):
+            entries.append({'name': entry.name, 'type': 'directory', 'contents': tree(entry.path)})
+        else:
+            entries.append({'name': entry.name, 'type': 'file', 'external-contents': os.path.realpath(entry.path)})
+    return entries
+
+
+def main(argv):
+    if len(argv) < 3:
+        sys.stderr.write('usage: msvc-case-overlay <overlay.json> <dir> [<dir>...]\n')
+        return 2
+    output = argv[1]
+    roots = [{'name': d, 'type': 'directory', 'contents': tree(d)} for d in argv[2:] if os.path.isdir(d)]
+    text = json.dumps({'version': 0, 'case-sensitive': 'false', 'roots': roots})
+
+    try:
+        with open(output, encoding='utf-8') as existing:
+            if existing.read() == text:
+                return 0
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+    temporary = '%s.%d.tmp' % (output, os.getpid())
+    with open(temporary, 'w', encoding='utf-8') as out:
+        out.write(text)
+    os.replace(temporary, output)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv))
