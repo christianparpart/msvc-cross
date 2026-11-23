@@ -41,7 +41,9 @@ esac
 BIN="$MSVC_WINE_ROOT/bin/x64" . "$MSVC_WINE_ROOT/msvcenv-native.sh"
 
 if [ ! -f "$WINEPREFIX/system.reg" ]; then
-    "$MSVC_CROSS_ROOT/env/msvc-cross-init-wine"
+    if ! "$MSVC_CROSS_ROOT/env/msvc-cross-init-wine"; then
+        echo "msvc-env: preparing $WINEPREFIX failed; run msvc-cross-init-wine by hand" >&2
+    fi
 fi
 
 # Persistent wineserver, so cl.exe invocations do not each pay a full Wine server
@@ -64,7 +66,9 @@ _msvc_env_runs_in_prefix() {
 }
 
 if ! _msvc_env_runs_in_prefix wineserver; then
-    env -u DISPLAY -u WAYLAND_DISPLAY wineserver -p
+    if ! env -u DISPLAY -u WAYLAND_DISPLAY wineserver -p; then
+        echo "msvc-env: starting a persistent wineserver failed; every Wine program will start its own" >&2
+    fi
 fi
 
 # Boot the prefix's services (services.exe, winedevice, plugplay, rpcss, ...) now,
