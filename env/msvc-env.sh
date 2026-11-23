@@ -59,6 +59,22 @@ if ! WINEPREFIX="$WINEPREFIX" pgrep -u "$(id -u)" -x wineserver >/dev/null 2>&1;
     env -u DISPLAY -u WAYLAND_DISPLAY wineserver -p
 fi
 
+# Boot the prefix's services (services.exe, winedevice, plugplay, rpcss, ...) now,
+# from a process that holds nothing. Otherwise the first Wine program a build
+# starts boots them, they inherit every descriptor that program had open and,
+# kept alive by the persistent server, hold them forever: vcpkg then waits on its
+# own lock file, and CMake waits for EOF on an execute_process pipe that never
+# comes. So: stdio on /dev/null, every other descriptor closed, own session.
+if ! pgrep -u "$(id -u)" -x services.exe >/dev/null 2>&1; then
+    (
+        for fd_path in /proc/$BASHPID/fd/*; do
+            fd="${fd_path##*/}"
+            [ "$fd" -gt 2 ] && eval "exec $fd>&-" 2>/dev/null
+        done
+        exec env -u DISPLAY -u WAYLAND_DISPLAY setsid wine wineboot </dev/null >/dev/null 2>&1
+    )
+fi
+
 echo "msvc-env: MSVC $(sed -n 's/^MSVCVER=//p' "$MSVC_WINE_ROOT/bin/x64/msvcenv.sh")" \
      "/ SDK $(sed -n 's/^SDKVER=//p' "$MSVC_WINE_ROOT/bin/x64/msvcenv.sh")" \
      "/ $(wine --version)"
