@@ -54,8 +54,16 @@ fi
 # cannot, no matter what its clients ask for.
 #
 # `wineserver -w` waits for the server to *exit* -- it is not a readiness probe --
-# so detection goes through pgrep.
-if ! WINEPREFIX="$WINEPREFIX" pgrep -u "$(id -u)" -x wineserver >/dev/null 2>&1; then
+# so detection looks for a process of that name started for this WINEPREFIX.
+_msvc_env_runs_in_prefix() {
+    local pid
+    for pid in $(pgrep -u "$(id -u)" -x "$1" 2>/dev/null); do
+        tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -qxF "WINEPREFIX=$WINEPREFIX" && return 0
+    done
+    return 1
+}
+
+if ! _msvc_env_runs_in_prefix wineserver; then
     env -u DISPLAY -u WAYLAND_DISPLAY wineserver -p
 fi
 
@@ -65,15 +73,22 @@ fi
 # kept alive by the persistent server, hold them forever: vcpkg then waits on its
 # own lock file, and CMake waits for EOF on an execute_process pipe that never
 # comes. So: stdio on /dev/null, every other descriptor closed, own session.
-if ! pgrep -u "$(id -u)" -x services.exe >/dev/null 2>&1; then
-    (
-        for fd_path in /proc/$BASHPID/fd/*; do
+# /proc/self is the subshell here, as the glob is expanded without a fork; the
+# {fd}>&- form closes descriptors above 9 in both bash and zsh.
+if ! _msvc_env_runs_in_prefix services.exe; then
+    if ! (
+        for fd_path in /proc/self/fd/*; do
             fd="${fd_path##*/}"
-            [ "$fd" -gt 2 ] && eval "exec $fd>&-" 2>/dev/null
+            if [ "$fd" -gt 2 ]; then
+                eval 'exec {fd}>&-' 2>/dev/null || :
+            fi
         done
         exec env -u DISPLAY -u WAYLAND_DISPLAY setsid wine wineboot </dev/null >/dev/null 2>&1
-    )
+    ); then
+        echo "msvc-env: wineboot failed; the first build step will boot the Wine services instead" >&2
+    fi
 fi
+unset -f _msvc_env_runs_in_prefix
 
 echo "msvc-env: MSVC $(sed -n 's/^MSVCVER=//p' "$MSVC_WINE_ROOT/bin/x64/msvcenv.sh")" \
      "/ SDK $(sed -n 's/^SDKVER=//p' "$MSVC_WINE_ROOT/bin/x64/msvcenv.sh")" \
