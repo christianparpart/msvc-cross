@@ -120,7 +120,7 @@ string(APPEND CMAKE_RC_FLAGS_INIT " ${_rc_flags}")
 # Windows caps a command line at 32767 characters, and a cross build reaches
 # that far sooner than a native one: every object path is absolute and rooted
 # under the Unix source tree, so a target with a few hundred translation units
-# produces a link line tens of kilobytes long. Building Lastrada's vendored
+# produces a link line tens of kilobytes long. Building one project's vendored
 # pdfout-sdk, lib.exe was handed 37204 bytes of arguments.
 #
 # The failure mode is the reason this is forced rather than left to CMake's
